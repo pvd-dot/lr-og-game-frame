@@ -1,18 +1,21 @@
 #!/usr/bin/env python3
 """Execute a restricted integer leaf function from a little-endian PS2 ELF.
 
-Usage: ps2_emu.py ELF SHA256 CASE.json
+Usage: ps2_emu.py ELF SHA256 CASE.json [--mips64]
 CASE contains start/end (exclusive), up to four integer args, memory entries
 {address, hex}, and outputs {address, size}. Integers may be JSON numbers or
 0x strings. Prints the low 32 return bits, all written addresses and outputs.
-Use outputs with tools/verify/bitcompare.py; this never compares code bytes.
+With --mips64, it also prints the full 64-bit return value. Use outputs with
+tools/verify/bitcompare.py; this never compares code bytes.
 
 This is a common MIPS32 instruction subset under Unicorn, NOT an R5900 machine.
-No FPU, MMI, VU, general 64/128-bit operations, calls, syscalls, MMIO or
-interrupts. DADDU is supported only as a low-word register move with one source
-equal to zero, and not in a delay slot. Only use routines whose relevant state
-fits 32-bit integer registers and RAM. Unlisted instructions, escaped control
-flow and exhausted budgets fail closed.
+No FPU, MMI, VU, general 128-bit operations, calls, syscalls, MMIO or
+interrupts. The default is MIPS32. Optional MIPS64 mode admits only DSLL32 and
+DSRL32 in addition to the common subset, and models them with Unicorn's 64-bit
+registers. DADDU is supported only as a register copy with one source equal to
+zero. MIPS64 mode lets Unicorn execute that form natively, including in delay
+slots; MIPS32 mode emulates it outside delay slots and rejects it inside them.
+Unlisted instructions, escaped control flow and exhausted budgets fail closed.
 State supplied by the caller is synthetic, not a captured running PS2 session.
 """
 import hashlib
@@ -21,7 +24,8 @@ import struct
 import sys
 from pathlib import Path
 
-from unicorn import Uc, UcError, UC_ARCH_MIPS, UC_MODE_MIPS32, UC_MODE_LITTLE_ENDIAN
+from unicorn import Uc, UcError, UC_ARCH_MIPS, UC_MODE_MIPS32, UC_MODE_MIPS64
+from unicorn import UC_MODE_LITTLE_ENDIAN
 from unicorn import UC_HOOK_CODE, UC_HOOK_MEM_WRITE, UC_HOOK_MEM_READ
 from unicorn.mips_const import UC_MIPS_REG_0, UC_MIPS_REG_A0, UC_MIPS_REG_V0
 from unicorn.mips_const import UC_MIPS_REG_SP, UC_MIPS_REG_RA, UC_MIPS_REG_PC
@@ -61,7 +65,7 @@ def segments(data):
     return result
 
 
-def allowed(word):
+def allowed(word, mode='mips32'):
     op = word >> 26
     if op == 0:
         # Shifts, word arithmetic, bitwise, comparisons; only JR RA may return.
@@ -70,7 +74,9 @@ def allowed(word):
         fn = word & 63
         if fn in (0, 2, 3):
             return (word >> 21) & 31 == 0  # Exclude MIPS32r2 ROTR and reserved forms.
-        if fn == 0x2d:  # DADDU is supported only as a 32-bit register move.
+        if fn in (0x3c, 0x3e):  # DSLL32 / DSRL32, only in the explicit 64-bit mode.
+            return mode == 'mips64' and ((word >> 21) & 31) == 0
+        if fn == 0x2d:  # DADDU is supported only as a zero-source register move.
             rs, rt = (word >> 21) & 31, (word >> 16) & 31
             return (word >> 6) & 31 == 0 and (rs == 0 or rt == 0)
         return fn in (4, 6, 7, 0x21, 0x23, 0x24, 0x25, 0x26, 0x27, 0x2a, 0x2b) and (word >> 6) & 31 == 0
@@ -83,13 +89,17 @@ def allowed(word):
 
 
 class Emu:
-    def __init__(self, elf, sha256):
+    def __init__(self, elf, sha256, mode='mips32'):
+        if mode not in ('mips32', 'mips64'):
+            raise Unsupported("mode must be 'mips32' or 'mips64'")
+        self.mode = mode
         self.data = Path(elf).read_bytes()
         self.sha256 = hashlib.sha256(self.data).hexdigest()
         if self.sha256 != sha256:
             raise Unsupported('ELF SHA-256 mismatch')
         self.segments = segments(self.data)
-        self.uc = Uc(UC_ARCH_MIPS, UC_MODE_MIPS32 | UC_MODE_LITTLE_ENDIAN)
+        unicorn_mode = UC_MODE_MIPS32 if mode == 'mips32' else UC_MODE_MIPS64
+        self.uc = Uc(UC_ARCH_MIPS, unicorn_mode | UC_MODE_LITTLE_ENDIAN)
         self.uc.mem_map(0, RAM_SIZE)
         for addr, contents, _ in self.segments:
             self.uc.mem_write(addr, contents)
@@ -116,26 +126,32 @@ class Emu:
         if self.steps > self.budget:
             raise Unsupported('instruction budget exhausted')
         word = struct.unpack('<I', self.read(address, 4))[0]
-        if not allowed(word):
+        if not allowed(word, self.mode):
             raise Unsupported(f'unsupported instruction {word:#010x} at {address:#x}')
         in_delay_slot = address == getattr(self, 'delay_slot_address', None)
         is_daddu = word >> 26 == 0 and word & 63 == 0x2d
         is_control = (word == 0x03e00008 or word >> 26 in (4, 5, 6, 7))
         if is_control and address + 4 < self.end:
             delay_word = struct.unpack('<I', self.read(address + 4, 4))[0]
-            if delay_word >> 26 == 0 and delay_word & 63 == 0x2d and allowed(delay_word):
+            if (self.mode == 'mips32' and delay_word >> 26 == 0
+                    and delay_word & 63 == 0x2d and allowed(delay_word)):
                 self.hook_error = 'DADDU register move in a delay slot is unsupported'
                 raise Unsupported(self.hook_error)
         if is_daddu:
+            if self.mode == 'mips64':
+                # Let Unicorn execute the admitted zero-source DADDU natively.
+                # This also preserves architectural branch-delay sequencing.
+                return
             if in_delay_slot:
                 raise Unsupported('DADDU register move in a delay slot is unsupported')
             rs, rt, rd = (word >> 21) & 31, (word >> 16) & 31, (word >> 11) & 31
             source = rt if rs == 0 else rs
             value = 0 if source == 0 else uc.reg_read(UC_MIPS_REG_0 + source)
             if rd:
-                uc.reg_write(UC_MIPS_REG_0 + rd, value & 0xffffffff)
-            # Unicorn's MIPS32 core does not execute this MIPS64 instruction.
-            # Skip it after applying the only admitted low-word behavior.
+                mask = 0xffffffffffffffff if self.mode == 'mips64' else 0xffffffff
+                uc.reg_write(UC_MIPS_REG_0 + rd, value & mask)
+            # Unicorn does not implement this MIPS64 instruction in MIPS32 mode.
+            # This MIPS32 fallback skips only the admitted zero-source form.
             uc.reg_write(UC_MIPS_REG_PC, address + 4)
         self.delay_slot_address = address + 4 if is_control else None
 
@@ -163,7 +179,8 @@ class Emu:
         for reg in range(1, 32):
             self.uc.reg_write(UC_MIPS_REG_0 + reg, 0)
         for i, value in enumerate(args):
-            self.uc.reg_write(UC_MIPS_REG_A0 + i, value & 0xffffffff)
+            mask = 0xffffffffffffffff if self.mode == 'mips64' else 0xffffffff
+            self.uc.reg_write(UC_MIPS_REG_A0 + i, value & mask)
         self.uc.reg_write(UC_MIPS_REG_SP, STACK)
         self.uc.reg_write(UC_MIPS_REG_RA, RETURN)
         self.start, self.end, self.budget = start, end, budget
@@ -182,24 +199,29 @@ class Emu:
             self.running = False
         if self.uc.reg_read(UC_MIPS_REG_PC) != RETURN:
             raise Unsupported('function did not return before timeout')
-        return self.uc.reg_read(UC_MIPS_REG_V0) & 0xffffffff
+        mask = 0xffffffffffffffff if self.mode == 'mips64' else 0xffffffff
+        return self.uc.reg_read(UC_MIPS_REG_V0) & mask
 
 
 def main():
-    if len(sys.argv) != 4:
+    if len(sys.argv) not in (4, 5) or (len(sys.argv) == 5 and sys.argv[4] != '--mips64'):
         print(__doc__)
         return 2
-    emu = Emu(sys.argv[1], sys.argv[2])
+    mode = 'mips64' if len(sys.argv) == 5 else 'mips32'
+    emu = Emu(sys.argv[1], sys.argv[2], mode=mode)
     case = json.loads(Path(sys.argv[3]).read_text())
     for region in case.get('memory', []):
         emu.write(number(region['address']), bytes.fromhex(region['hex']))
     result = emu.call(number(case['start']), number(case['end']),
                       *(number(a) for a in case.get('args', [])))
-    print(json.dumps({'return_u32': result, 'instructions': emu.steps,
-                      'read_addresses': sorted(emu.read_addresses),
-                      'written_addresses': sorted(emu.written),
-                      'outputs': [emu.read(number(r['address']), number(r['size'])).hex()
-                                  for r in case.get('outputs', [])]}))
+    report = {'return_u32': result & 0xffffffff, 'instructions': emu.steps,
+              'read_addresses': sorted(emu.read_addresses),
+              'written_addresses': sorted(emu.written),
+              'outputs': [emu.read(number(r['address']), number(r['size'])).hex()
+                          for r in case.get('outputs', [])]}
+    if mode == 'mips64':
+        report['return_u64'] = result
+    print(json.dumps(report))
     return 0
 
 
