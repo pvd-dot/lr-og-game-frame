@@ -9,6 +9,10 @@ Every release of GameFrame, newest first. The format follows
 
 ### Added
 
+- This fork: a restricted PS2 ELF integer-leaf execution backend, synthetic
+  rejection tests, pinned NixOS tools and a Last Raven behavioral pilot guide.
+  It reuses GameFrame's output comparator and does not compare compiled code bytes.
+
 - The call log in the replacement libraries: `WRAPPER_CALLS=FILE` writes every call the game
   makes into Glide, SGL, ATI3DCIF or the S3D Toolkit, one line each, in the format
   `tools/verify/seqdiff.py` compares. Vertices are written as their values, texture data and

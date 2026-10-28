@@ -1,5 +1,10 @@
 # GameFrame
 
+This is the `lr-og-game-frame` fork. Its initial PS2 adaptation uses GameFrame's
+behavioral function verification strategy, without compiler byte matching. See
+[PS2 function verification](docs/consoles/ps2-functions.md) for NixOS setup, the
+Last Raven pilot and the explicitly limited integer execution backend.
+
 GameFrame is an agentic framework for reverse engineering games. Its playbook of skills and agents runs inside your coding agent. Its toolkit of tested tools checks every result against the original. AI agents and people use it to study a game from its shipped files. They
 document its formats and rules, and reimplement it so it behaves exactly like the original.
 
