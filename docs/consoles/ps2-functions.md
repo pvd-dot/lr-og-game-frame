@@ -87,7 +87,13 @@ not a proof for all inputs or a demonstration of running gameplay.
 `ps2_emu.py` loads little-endian ELF32 MIPS executable segments into 32 MiB of RAM.
 It admits a listed common MIPS32 integer subset: word arithmetic, shifts, logic,
 comparisons, ordinary conditional branches, byte/halfword/word loads/stores and
-`jr ra`. It supports at most four register arguments. Delay slots execute.
+`jr ra`. It also emulates the low 32-bit result of `DADDU` only when one source
+register is `$zero`, which copies the other register's low word in the 32-bit
+state this backend models.
+That form is rejected in a delay slot because the current hook cannot safely
+preserve its scheduled execution. Other `DADDU` arithmetic is unsupported. It
+supports at most four register arguments. Other supported instructions in delay
+slots execute.
 
 Unicorn's generic MIPS CPU is **not a complete R5900/PS2 model**. This backend does
 not support 64/128-bit register operations, MMI, FPU, VU, syscalls, callees, MMIO,

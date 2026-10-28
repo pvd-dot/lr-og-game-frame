@@ -12,6 +12,8 @@ Every release of GameFrame, newest first. The format follows
 - This fork: a restricted PS2 ELF integer-leaf execution backend, synthetic
   rejection tests, pinned NixOS tools and a Last Raven behavioral pilot guide.
   It reuses GameFrame's output comparator and does not compare compiled code bytes.
+- The PS2 integer backend models low-word DADDU register moves with one source
+  equal to zero; it rejects that emulated form in branch and return delay slots.
 
 - The call log in the replacement libraries: `WRAPPER_CALLS=FILE` writes every call the game
   makes into Glide, SGL, ATI3DCIF or the S3D Toolkit, one line each, in the format
