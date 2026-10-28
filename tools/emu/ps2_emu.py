@@ -10,12 +10,12 @@ tools/verify/bitcompare.py; this never compares code bytes.
 
 This is a common MIPS32 instruction subset under Unicorn, NOT an R5900 machine.
 No FPU, MMI, VU, general 128-bit operations, calls, syscalls, MMIO or
-interrupts. The default is MIPS32. Optional MIPS64 mode admits only DSLL32 and
-DSRL32 in addition to the common subset, and models them with Unicorn's 64-bit
-registers. DADDU is supported only as a register copy with one source equal to
-zero. MIPS64 mode lets Unicorn execute that form natively, including in delay
-slots; MIPS32 mode emulates it outside delay slots and rejects it inside them.
-Unlisted instructions, escaped control flow and exhausted budgets fail closed.
+interrupts. The default is MIPS32. Optional MIPS64 mode additionally admits
+DSLL32, DSRL32 and DADDIU, and models them with Unicorn's 64-bit registers.
+DADDU is supported only as a register copy with one source equal to zero.
+MIPS64 mode lets Unicorn execute that form natively, including in delay slots;
+MIPS32 mode emulates it outside delay slots and rejects it inside them. Unlisted
+instructions, escaped control flow and exhausted budgets fail closed.
 State supplied by the caller is synthetic, not a captured running PS2 session.
 """
 import hashlib
@@ -85,6 +85,8 @@ def allowed(word, mode='mips32'):
         return False
     if op == 15 and (word >> 21) & 31:
         return False
+    if op == 25:  # DADDIU is admitted only with the explicit 64-bit register model.
+        return mode == 'mips64'
     return op in (4, 5, 6, 7, 9, 10, 11, 12, 13, 14, 15, 32, 33, 35, 36, 37, 40, 41, 43)
 
 

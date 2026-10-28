@@ -24,6 +24,10 @@ def daddu(rd, rs, rt, shamt=0):
     return (rs << 21) | (rt << 16) | (rd << 11) | (shamt << 6) | 0x2d
 
 
+def daddiu(rt, rs, imm):
+    return (25 << 26) | (rs << 21) | (rt << 16) | (imm & 0xffff)
+
+
 class Tests(unittest.TestCase):
     def engine(self, words, mode='mips32'):
         data = elf(words)
@@ -197,6 +201,53 @@ class Tests(unittest.TestCase):
         result32 = branch32.call(0x100000, 0x100014, 0xffffffff)
         self.assertEqual(result64, 7)
         self.assertEqual(result64 & 0xffffffff, result32)
+
+    def test_mips64_daddiu_signed_immediate_wrap_and_zero_register(self):
+        # DADDIU sign-extends its immediate and wraps modulo 2^64 without trapping.
+        for value, delta in ((0x0123456789abcdef, 5),
+                             (0x7fffffffffffffff, 1),
+                             (0xffffffffffffffff, 1),
+                             (0x8000000000000000, -32768)):
+            emu = self.engine([daddiu(2, 4, delta), 0x03e00008, 0], mode='mips64')
+            self.assertEqual(emu.call(0x100000, 0x10000c, value),
+                             (value + delta) & 0xffffffffffffffff)
+
+        emu = self.engine([daddiu(2, 0, -1), 0x03e00008, 0], mode='mips64')
+        self.assertEqual(emu.call(0x100000, 0x10000c), 0xffffffffffffffff)
+        emu = self.engine([daddiu(0, 4, 1), daddiu(2, 0, 0x1234),
+                           0x03e00008, 0], mode='mips64')
+        self.assertEqual(emu.call(0x100000, 0x100010, 0xffffffffffffffff), 0x1234)
+
+    def test_mips64_daddiu_branch_and_return_delay_slots(self):
+        # The delay-slot addition executes regardless of the branch outcome.
+        words = [0x10850002,             # beq a0,a1,+2
+                 daddiu(8, 7, -2),        # delay: t0 = a3 - 2
+                 0xacc80000,              # skipped on taken branch
+                 0xacc80004,              # runs on either path
+                 0x03e00008, daddiu(2, 8, 1)]  # JR RA; v0=t0+1 in delay slot
+        emu = self.engine(words, mode='mips64')
+        value = 0x8123456789abcdef
+        for left, right, first_store, steps in ((7, 7, False, 5), (7, 8, True, 6)):
+            emu.write(0x200000, bytes(8))
+            expected = (value - 1) & 0xffffffffffffffff
+            self.assertEqual(emu.call(0x100000, 0x100018, left, right,
+                                      0x200000, value), expected)
+            written = emu.read(0x200000, 8)
+            self.assertEqual(written[:4] != bytes(4), first_store)
+            self.assertEqual(written[4:], struct.pack('<I', (value - 2) & 0xffffffff))
+            self.assertEqual(emu.steps, steps)
+
+    def test_daddiu_is_opt_in_and_does_not_admit_other_doubleword_ops(self):
+        word = daddiu(2, 4, -1)
+        self.assertFalse(allowed(word, 'mips32'))
+        self.assertTrue(allowed(word, 'mips64'))
+        with self.assertRaisesRegex(Unsupported, 'unsupported instruction'):
+            self.engine([word, 0x03e00008, 0]).call(0x100000, 0x10000c, 2)
+        dadd = (4 << 21) | (5 << 16) | (2 << 11) | 0x2c
+        self.assertFalse(allowed(dadd, 'mips64'))
+        with self.assertRaisesRegex(Unsupported, 'unsupported instruction'):
+            self.engine([dadd, 0x03e00008, 0], mode='mips64').call(
+                0x100000, 0x10000c, 1, 2)
 
     def test_mips64_shift_executes_in_a_control_transfer_delay_slot(self):
         # JR RA; its delay slot computes DSRL32 V0,A0,31.

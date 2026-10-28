@@ -97,9 +97,11 @@ unsupported. Other supported instructions in delay slots execute. Both modes
 support at most four register arguments.
 
 Pass `mode='mips64'` to `Emu` or add `--mips64` to the CLI to opt into Unicorn's
-64-bit MIPS register model. This mode adds only `DSLL32` and `DSRL32`; these
-execute as 64-bit doubleword shifts with shift amounts `32 + sa`, as specified
-by the [MIPS64 instruction set reference](https://s3-eu-west-1.amazonaws.com/downloads-mips/documents/MD00087-2B-MIPS64BIS-AFP-05.04.pdf).
+64-bit MIPS register model. This mode adds only `DSLL32`, `DSRL32` and
+`DADDIU`. The shifts execute as 64-bit doubleword shifts with shift amounts
+`32 + sa`. `DADDIU` sign-extends its 16-bit immediate and performs a 64-bit
+addition without an integer-overflow trap. These instructions follow the
+[MIPS64 instruction set reference](https://s3-eu-west-1.amazonaws.com/downloads-mips/documents/MD00087-2B-MIPS64BIS-AFP-05.04.pdf).
 The mode also executes the admitted zero-source `DADDU` form natively. All other
 64/128-bit operations remain unsupported. It returns a 64-bit
 value and reports `return_u64` in CLI output, while retaining `return_u32` as its
