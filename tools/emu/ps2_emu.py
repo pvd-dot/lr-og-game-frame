@@ -8,9 +8,11 @@ CASE contains start/end (exclusive), up to four integer args, memory entries
 Use outputs with tools/verify/bitcompare.py; this never compares code bytes.
 
 This is a common MIPS32 instruction subset under Unicorn, NOT an R5900 machine.
-No FPU, MMI, VU, 64/128-bit operations, calls, syscalls, MMIO or interrupts.
-Only use routines whose relevant state fits 32-bit integer registers and RAM.
-Unlisted instructions, escaped control flow and exhausted budgets fail closed.
+No FPU, MMI, VU, general 64/128-bit operations, calls, syscalls, MMIO or
+interrupts. DADDU is supported only as a low-word register move with one source
+equal to zero, and not in a delay slot. Only use routines whose relevant state
+fits 32-bit integer registers and RAM. Unlisted instructions, escaped control
+flow and exhausted budgets fail closed.
 State supplied by the caller is synthetic, not a captured running PS2 session.
 """
 import hashlib
@@ -68,6 +70,9 @@ def allowed(word):
         fn = word & 63
         if fn in (0, 2, 3):
             return (word >> 21) & 31 == 0  # Exclude MIPS32r2 ROTR and reserved forms.
+        if fn == 0x2d:  # DADDU is supported only as a 32-bit register move.
+            rs, rt = (word >> 21) & 31, (word >> 16) & 31
+            return (word >> 6) & 31 == 0 and (rs == 0 or rt == 0)
         return fn in (4, 6, 7, 0x21, 0x23, 0x24, 0x25, 0x26, 0x27, 0x2a, 0x2b) and (word >> 6) & 31 == 0
     # BEQ/BNE/BLEZ/BGTZ, ADDIU, SLTI/U, logical immediates, LUI, byte/half/word RAM.
     if op in (6, 7) and (word >> 16) & 31:
@@ -113,6 +118,26 @@ class Emu:
         word = struct.unpack('<I', self.read(address, 4))[0]
         if not allowed(word):
             raise Unsupported(f'unsupported instruction {word:#010x} at {address:#x}')
+        in_delay_slot = address == getattr(self, 'delay_slot_address', None)
+        is_daddu = word >> 26 == 0 and word & 63 == 0x2d
+        is_control = (word == 0x03e00008 or word >> 26 in (4, 5, 6, 7))
+        if is_control and address + 4 < self.end:
+            delay_word = struct.unpack('<I', self.read(address + 4, 4))[0]
+            if delay_word >> 26 == 0 and delay_word & 63 == 0x2d and allowed(delay_word):
+                self.hook_error = 'DADDU register move in a delay slot is unsupported'
+                raise Unsupported(self.hook_error)
+        if is_daddu:
+            if in_delay_slot:
+                raise Unsupported('DADDU register move in a delay slot is unsupported')
+            rs, rt, rd = (word >> 21) & 31, (word >> 16) & 31, (word >> 11) & 31
+            source = rt if rs == 0 else rs
+            value = 0 if source == 0 else uc.reg_read(UC_MIPS_REG_0 + source)
+            if rd:
+                uc.reg_write(UC_MIPS_REG_0 + rd, value & 0xffffffff)
+            # Unicorn's MIPS32 core does not execute this MIPS64 instruction.
+            # Skip it after applying the only admitted low-word behavior.
+            uc.reg_write(UC_MIPS_REG_PC, address + 4)
+        self.delay_slot_address = address + 4 if is_control else None
 
     def _write(self, uc, access, address, size, value, _):
         if self.running:
@@ -144,10 +169,14 @@ class Emu:
         self.start, self.end, self.budget = start, end, budget
         self.steps, self.written = 0, set()
         self.read_addresses = set()
+        self.delay_slot_address = None
+        self.hook_error = None
         self.running = True
         try:
             self.uc.emu_start(start, RETURN, timeout=1000000)
         except UcError as e:
+            if self.hook_error:
+                raise Unsupported(self.hook_error) from e
             raise Unsupported(f'Unicorn execution failed: {e}') from e
         finally:
             self.running = False

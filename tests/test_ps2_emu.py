@@ -18,6 +18,10 @@ def elf(words):
     return header + ph + code
 
 
+def daddu(rd, rs, rt, shamt=0):
+    return (rs << 21) | (rt << 16) | (rd << 11) | (shamt << 6) | 0x2d
+
+
 class Tests(unittest.TestCase):
     def engine(self, words):
         data = elf(words)
@@ -38,6 +42,52 @@ class Tests(unittest.TestCase):
     def test_word_overflow(self):
         emu = self.engine([0x00851021, 0x03e00008, 0])
         self.assertEqual(emu.call(0x100000, 0x10000c, 0xffffffff, 2), 1)
+
+    def test_daddu_zero_operand_copies_low_word(self):
+        # DADDU V0,A0,ZERO followed by JR RA; the input register is 32-bit here.
+        emu = self.engine([daddu(2, 4, 0), 0x03e00008, 0])
+        self.assertEqual(emu.call(0x100000, 0x10000c, 0xfedcba98), 0xfedcba98)
+
+    def test_daddu_destination_aliases_source_and_repeated_calls(self):
+        # DADDU A0,A0,ZERO; ADDU V0,A0,ZERO; JR RA.
+        emu = self.engine([daddu(4, 4, 0), 0x00801021, 0x03e00008, 0])
+        for value in (0, 1, 0xffffffff, 0x87654321):
+            self.assertEqual(emu.call(0x100000, 0x100010, value), value)
+            self.assertEqual(emu.steps, 4)  # includes JR RA's executed delay slot
+
+    def test_daddu_zero_register_and_zero_source_form(self):
+        # A write to ZERO is discarded; ZERO as either source remains zero.
+        emu = self.engine([daddu(0, 4, 0), daddu(2, 0, 0), 0x03e00008, 0])
+        self.assertEqual(emu.call(0x100000, 0x100010, 0xffffffff), 0)
+
+    def test_daddu_zero_rs_copies_rt_and_allows_destination_alias(self):
+        # DADDU A1,ZERO,A1; ADDU V0,A1,ZERO; JR RA.
+        emu = self.engine([daddu(5, 0, 5), 0x00a01021, 0x03e00008, 0])
+        self.assertEqual(emu.call(0x100000, 0x100010, 0, 0xdeadbeef), 0xdeadbeef)
+
+    def test_daddu_rejects_arithmetic_and_reserved_encoding(self):
+        with self.assertRaisesRegex(Unsupported, 'unsupported instruction'):
+            self.engine([daddu(2, 4, 5), 0x03e00008, 0]).call(0x100000, 0x10000c, 1, 2)
+        self.assertFalse(allowed(daddu(2, 4, 0, shamt=1)))
+
+    def test_daddu_in_delay_slot_fails_closed(self):
+        # JR RA's delay slot is part of execution and must not be skipped.
+        emu = self.engine([0x03e00008, daddu(2, 4, 0), 0])
+        with self.assertRaisesRegex(Unsupported, 'delay slot'):
+            emu.call(0x100000, 0x10000c, 7)
+
+    def test_daddu_branch_delay_rejected_when_taken_or_untaken(self):
+        # BEQ's delay instruction executes on both paths; reject before branching.
+        emu = self.engine([0x10850002, daddu(2, 4, 0), 0x24420001,
+                           0x03e00008, 0])
+        for left, right in ((4, 4), (4, 5)):
+            with self.assertRaisesRegex(Unsupported, 'delay slot'):
+                emu.call(0x100000, 0x100014, left, right)
+
+    def test_daddu_cannot_run_past_function_end(self):
+        emu = self.engine([daddu(2, 4, 0), 0x03e00008, 0])
+        with self.assertRaisesRegex(Unsupported, 'escaped'):
+            emu.call(0x100000, 0x100004, 7)
 
     def test_repeated_calls_restore_cpu_state(self):
         emu = self.engine([0x00851021, 0xacc20000, 0x03e00008, 0x24420001])
