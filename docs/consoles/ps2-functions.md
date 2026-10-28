@@ -90,16 +90,18 @@ logic, comparisons, ordinary conditional branches, byte/halfword/word
 loads/stores and `jr ra`. It also admits `DADDU` only when one source register is
 `$zero`; this copies the modeled register value. In MIPS32 mode that is the low
 word. In optional MIPS64 mode it is the full doubleword. This narrow `DADDU`
-form is rejected in a delay slot because the hook cannot safely preserve its
-scheduled execution. Other `DADDU` arithmetic is unsupported. Other supported
-instructions in delay slots execute. Both modes support at most four register
-arguments.
+form is rejected in a delay slot in MIPS32 mode, where the backend must emulate
+it. MIPS64 mode lets Unicorn execute the same restricted form natively, so its
+scheduled delay-slot behavior is preserved. Other `DADDU` arithmetic is
+unsupported. Other supported instructions in delay slots execute. Both modes
+support at most four register arguments.
 
 Pass `mode='mips64'` to `Emu` or add `--mips64` to the CLI to opt into Unicorn's
 64-bit MIPS register model. This mode adds only `DSLL32` and `DSRL32`; these
 execute as 64-bit doubleword shifts with shift amounts `32 + sa`, as specified
 by the [MIPS64 instruction set reference](https://s3-eu-west-1.amazonaws.com/downloads-mips/documents/MD00087-2B-MIPS64BIS-AFP-05.04.pdf).
-All other 64/128-bit operations remain unsupported. The mode returns a 64-bit
+The mode also executes the admitted zero-source `DADDU` form natively. All other
+64/128-bit operations remain unsupported. It returns a 64-bit
 value and reports `return_u64` in CLI output, while retaining `return_u32` as its
 low word. Inputs are full 64-bit register values in this mode. A 32-bit signed
 argument must be passed sign-extended when the original caller does so; this

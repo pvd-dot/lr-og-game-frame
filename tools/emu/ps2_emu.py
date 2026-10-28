@@ -13,8 +13,9 @@ No FPU, MMI, VU, general 128-bit operations, calls, syscalls, MMIO or
 interrupts. The default is MIPS32. Optional MIPS64 mode admits only DSLL32 and
 DSRL32 in addition to the common subset, and models them with Unicorn's 64-bit
 registers. DADDU is supported only as a register copy with one source equal to
-zero, and not in a delay slot. Unlisted instructions, escaped control flow and
-exhausted budgets fail closed.
+zero. MIPS64 mode lets Unicorn execute that form natively, including in delay
+slots; MIPS32 mode emulates it outside delay slots and rejects it inside them.
+Unlisted instructions, escaped control flow and exhausted budgets fail closed.
 State supplied by the caller is synthetic, not a captured running PS2 session.
 """
 import hashlib
@@ -132,10 +133,15 @@ class Emu:
         is_control = (word == 0x03e00008 or word >> 26 in (4, 5, 6, 7))
         if is_control and address + 4 < self.end:
             delay_word = struct.unpack('<I', self.read(address + 4, 4))[0]
-            if delay_word >> 26 == 0 and delay_word & 63 == 0x2d and allowed(delay_word):
+            if (self.mode == 'mips32' and delay_word >> 26 == 0
+                    and delay_word & 63 == 0x2d and allowed(delay_word)):
                 self.hook_error = 'DADDU register move in a delay slot is unsupported'
                 raise Unsupported(self.hook_error)
         if is_daddu:
+            if self.mode == 'mips64':
+                # Let Unicorn execute the admitted zero-source DADDU natively.
+                # This also preserves architectural branch-delay sequencing.
+                return
             if in_delay_slot:
                 raise Unsupported('DADDU register move in a delay slot is unsupported')
             rs, rt, rd = (word >> 21) & 31, (word >> 16) & 31, (word >> 11) & 31
@@ -145,8 +151,7 @@ class Emu:
                 mask = 0xffffffffffffffff if self.mode == 'mips64' else 0xffffffff
                 uc.reg_write(UC_MIPS_REG_0 + rd, value & mask)
             # Unicorn does not implement this MIPS64 instruction in MIPS32 mode.
-            # In MIPS64 mode the full register copy is equivalent to DADDU with
-            # one zero source; skip only that narrowly admitted form.
+            # This MIPS32 fallback skips only the admitted zero-source form.
             uc.reg_write(UC_MIPS_REG_PC, address + 4)
         self.delay_slot_address = address + 4 if is_control else None
 

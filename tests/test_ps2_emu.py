@@ -86,6 +86,47 @@ class Tests(unittest.TestCase):
             with self.assertRaisesRegex(Unsupported, 'delay slot'):
                 emu.call(0x100000, 0x100014, left, right)
 
+    def test_mips64_daddu_copy_runs_in_branch_delay_and_preserves_memory_order(self):
+        # The copy executes in BEQ's delay slot on both paths. The branch chooses
+        # whether the first store runs; both stores observe the full-width copy.
+        words = [0x10850002,             # beq a0,a1,+2
+                 daddu(8, 4, 0),          # delay: T0 = A0
+                 0xacc80000,              # sw T0,0(A2), not-taken path only
+                 0xacc80004,              # sw T0,4(A2)
+                 daddu(2, 8, 0),          # V0 = T0
+                 0x03e00008, 0]           # return; nop
+        emu = self.engine(words, mode='mips64')
+        value = 0x8123456789abcdef
+
+        # Taken branch skips only the first store; the delay-slot copy still runs.
+        emu.write(0x200000, bytes(8))
+        self.assertEqual(emu.call(0x100000, 0x10001c, value, value, 0x200000), value)
+        self.assertEqual(emu.read(0x200000, 8), bytes(4) + struct.pack('<I', value & 0xffffffff))
+        self.assertEqual(emu.steps, 6)
+
+        # Not-taken branch executes both stores after the same delay-slot copy.
+        emu.write(0x200000, bytes(8))
+        self.assertEqual(emu.call(0x100000, 0x10001c, value, value ^ 1, 0x200000), value)
+        self.assertEqual(emu.read(0x200000, 8),
+                         struct.pack('<II', value & 0xffffffff, value & 0xffffffff))
+        self.assertEqual(emu.steps, 7)
+
+    def test_mips64_daddu_native_copy_aliases_and_arithmetic_rejection(self):
+        for word, result_reg, expected in ((daddu(4, 4, 0), 4, 0x8123456789abcdef),
+                                           (daddu(5, 0, 5), 5, 0xfedcba9876543210)):
+            emu = self.engine([word, daddu(2, result_reg, 0),
+                               0x03e00008, 0], mode='mips64')
+            values = [0x8123456789abcdef, 0xfedcba9876543210]
+            self.assertEqual(emu.call(0x100000, 0x100010, *values), expected)
+
+        # A write to $zero is ignored by the native MIPS64 execution path.
+        emu = self.engine([daddu(0, 4, 0), 0x03e00008, 0], mode='mips64')
+        self.assertEqual(emu.call(0x100000, 0x10000c, 0x8123456789abcdef), 0)
+
+        emu = self.engine([daddu(2, 4, 5), 0x03e00008, 0], mode='mips64')
+        with self.assertRaisesRegex(Unsupported, 'unsupported instruction'):
+            emu.call(0x100000, 0x10000c, 0x8123456789abcdef, 7)
+
     def test_daddu_cannot_run_past_function_end(self):
         emu = self.engine([daddu(2, 4, 0), 0x03e00008, 0])
         with self.assertRaisesRegex(Unsupported, 'escaped'):

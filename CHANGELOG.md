@@ -13,7 +13,8 @@ Every release of GameFrame, newest first. The format follows
   rejection tests, pinned NixOS tools and a Last Raven behavioral pilot guide.
   It reuses GameFrame's output comparator and does not compare compiled code bytes.
 - The PS2 integer backend models low-word DADDU register moves with one source
-  equal to zero; it rejects that emulated form in branch and return delay slots.
+  equal to zero. MIPS32 emulation rejects that form in delay slots; optional
+  MIPS64 mode executes the restricted form natively, including in delay slots.
 - The PS2 backend has an opt-in Unicorn MIPS64 mode for DSLL32 and DSRL32, with
   synthetic 64-bit shift and common-instruction regression tests; other doubleword
   and R5900-specific operations remain unsupported.
