@@ -11,7 +11,8 @@ tools/verify/bitcompare.py; this never compares code bytes.
 This is a common MIPS32 instruction subset under Unicorn, NOT an R5900 machine.
 No FPU, MMI, VU, general 128-bit operations, calls, syscalls, MMIO or
 interrupts. The default is MIPS32. Optional MIPS64 mode additionally admits
-DSLL32, DSRL32 and DADDIU, and models them with Unicorn's 64-bit registers.
+DSLL32, DSRL32, DADDIU and aligned RAM LD/SD, and models them with Unicorn's
+64-bit registers.
 DADDU is supported only as a register copy with one source equal to zero.
 MIPS64 mode lets Unicorn execute that form natively, including in delay slots;
 MIPS32 mode emulates it outside delay slots and rejects it inside them. Unlisted
@@ -87,6 +88,8 @@ def allowed(word, mode='mips32'):
         return False
     if op == 25:  # DADDIU is admitted only with the explicit 64-bit register model.
         return mode == 'mips64'
+    if op in (55, 63):  # LD / SD, only in the explicit 64-bit mode.
+        return mode == 'mips64'
     return op in (4, 5, 6, 7, 9, 10, 11, 12, 13, 14, 15, 32, 33, 35, 36, 37, 40, 41, 43)
 
 
@@ -106,7 +109,7 @@ class Emu:
         for addr, contents, _ in self.segments:
             self.uc.mem_write(addr, contents)
         self.uc.hook_add(UC_HOOK_CODE, self._instruction)
-        self.uc.hook_add(UC_HOOK_MEM_WRITE, self._write)
+        self.write_hook = self.uc.hook_add(UC_HOOK_MEM_WRITE, self._write)
         self.uc.hook_add(UC_HOOK_MEM_READ, self._read)
         self.running = False
         self.initial_cpu = self.uc.context_save()
@@ -122,6 +125,13 @@ class Emu:
         self.uc.mem_write(address, data)
 
     def _instruction(self, uc, address, size, _):
+        # Unicorn's MIPS64 memory-write hook can raise UC_ERR_EXCEPTION when a
+        # taken branch's SD delay slot lands directly on another control
+        # transfer. Leave the instruction native, but temporarily observe that
+        # one store through its decoded effective address instead.
+        suspended = getattr(self, 'suspended_sd_address', None)
+        if suspended is not None and address != suspended:
+            self._restore_write_hook(uc)
         if not self.start <= address < self.end or size != 4:
             raise Unsupported(f'control flow escaped function at {address:#x}')
         self.steps += 1
@@ -132,9 +142,30 @@ class Emu:
             raise Unsupported(f'unsupported instruction {word:#010x} at {address:#x}')
         in_delay_slot = address == getattr(self, 'delay_slot_address', None)
         is_daddu = word >> 26 == 0 and word & 63 == 0x2d
+        is_doubleword_memory = word >> 26 in (55, 63)
         is_control = (word == 0x03e00008 or word >> 26 in (4, 5, 6, 7))
+        if is_doubleword_memory:
+            # Unicorn's MIPS64 execution preserves the instruction and delay
+            # slot. Preflight its access so this leaf backend remains limited
+            # to naturally aligned doublewords inside its RAM mapping.
+            rs = (word >> 21) & 31
+            offset = word & 0xffff
+            if offset & 0x8000:
+                offset -= 0x10000
+            base = 0 if rs == 0 else uc.reg_read(UC_MIPS_REG_0 + rs)
+            address64 = (base + offset) & 0xffffffffffffffff
+            if address64 & 7:
+                raise Unsupported('unaligned doubleword access')
+            if address64 > RAM_SIZE - 8:
+                raise Unsupported('doubleword access outside RAM')
+            if address == getattr(self, 'suspended_sd_address', None):
+                self.written.update(range(address64, address64 + 8))
         if is_control and address + 4 < self.end:
             delay_word = struct.unpack('<I', self.read(address + 4, 4))[0]
+            if self.mode == 'mips64' and delay_word >> 26 == 63:
+                self.uc.hook_del(self.write_hook)
+                self.write_hook = None
+                self.suspended_sd_address = address + 4
             if (self.mode == 'mips32' and delay_word >> 26 == 0
                     and delay_word & 63 == 0x2d and allowed(delay_word)):
                 self.hook_error = 'DADDU register move in a delay slot is unsupported'
@@ -156,6 +187,11 @@ class Emu:
             # This MIPS32 fallback skips only the admitted zero-source form.
             uc.reg_write(UC_MIPS_REG_PC, address + 4)
         self.delay_slot_address = address + 4 if is_control else None
+
+    def _restore_write_hook(self, uc):
+        if self.write_hook is None:
+            self.write_hook = uc.hook_add(UC_HOOK_MEM_WRITE, self._write)
+        self.suspended_sd_address = None
 
     def _write(self, uc, access, address, size, value, _):
         if self.running:
@@ -189,6 +225,7 @@ class Emu:
         self.steps, self.written = 0, set()
         self.read_addresses = set()
         self.delay_slot_address = None
+        self.suspended_sd_address = None
         self.hook_error = None
         self.running = True
         try:
@@ -198,6 +235,8 @@ class Emu:
                 raise Unsupported(self.hook_error) from e
             raise Unsupported(f'Unicorn execution failed: {e}') from e
         finally:
+            if self.write_hook is None:
+                self._restore_write_hook(self.uc)
             self.running = False
         if self.uc.reg_read(UC_MIPS_REG_PC) != RETURN:
             raise Unsupported('function did not return before timeout')
