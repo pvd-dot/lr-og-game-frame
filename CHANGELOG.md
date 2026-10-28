@@ -14,6 +14,9 @@ Every release of GameFrame, newest first. The format follows
   It reuses GameFrame's output comparator and does not compare compiled code bytes.
 - The PS2 integer backend models low-word DADDU register moves with one source
   equal to zero; it rejects that emulated form in branch and return delay slots.
+- The PS2 backend has an opt-in Unicorn MIPS64 mode for DSLL32 and DSRL32, with
+  synthetic 64-bit shift and common-instruction regression tests; other doubleword
+  and R5900-specific operations remain unsupported.
 
 - The call log in the replacement libraries: `WRAPPER_CALLS=FILE` writes every call the game
   makes into Glide, SGL, ATI3DCIF or the S3D Toolkit, one line each, in the format
