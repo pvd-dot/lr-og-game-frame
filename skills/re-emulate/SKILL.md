@@ -5,6 +5,13 @@ description: Run individual functions from a game's Windows x64 binaries (tools/
 
 # Emulate original code for ground truth
 
+For PS2 integer leaf routines, use `tools/emu/ps2_emu.py` and the exact setup,
+input/output contract and limits in `docs/consoles/ps2-functions.md`. It loads a
+hash-verified ELF and feeds the same behavioral verification workflow below.
+It is not a full R5900 backend: unsupported PS2 instructions or hardware require
+another execution backend, never guessed results. No compiler byte matching is
+required for this fork's PS2 experiment.
+
 Reading code tells you the shape of a computation; only running it tells you the exact result.
 In a simulation, one bit of difference in a float or one random draw out of order grows until
 the reimplementation's world no longer matches. The emulator runs a single original function,

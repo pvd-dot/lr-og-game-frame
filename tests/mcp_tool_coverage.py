@@ -82,8 +82,9 @@ def test_catalog_and_runner():
     expected = [item.as_dict() for item in items]
     runnable = [item for item in items if item.runs]
     nonrunnable = [item for item in items if not item.runs]
-    assert len(items) == 129, f'catalog has {len(items)} items; update the expected count'
-    assert len(runnable) == 101, f'catalog has {len(runnable)} runnable items; update the expected count'
+    assert len(items) == 130, f'catalog has {len(items)} items; update the expected count'
+    assert len(runnable) == 102, f'catalog has {len(runnable)} runnable items; update the expected count'
+    assert any(item.name == 'ps2_emu' and item.runs for item in items)
     assert len([item for item in items if item.kind == 'library']) == 19
     assert len([item for item in items if item.kind == 'ghidra']) == 9
 
@@ -197,7 +198,7 @@ def test_progress_cancellation_and_timeout():
 def main():
     test_catalog_and_runner()
     test_progress_cancellation_and_timeout()
-    print('MCP coverage: 129 catalog entries, 101 runnable tools, progress/cancel/timeout')
+    print('MCP coverage: 130 catalog entries, 102 runnable tools, progress/cancel/timeout')
 
 
 if __name__ == '__main__':

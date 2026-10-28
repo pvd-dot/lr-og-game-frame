@@ -6,6 +6,11 @@ from `templates/project/`, and the skills in `skills/` (start with `re-start`).
 
 ## What this repository is
 
+This fork's PS2 experiment follows GameFrame's behavioral verification strategy.
+Use `docs/consoles/ps2-functions.md`; compiler byte matching is not an acceptance
+requirement. Keep game-specific source and ground truth in the private game's
+repository or external data directory. Unsupported execution is not a passing test.
+
 GameFrame is an agentic framework for reverse engineering games. Its playbook of skills and agents runs inside your coding agent. Its toolkit of tested tools checks every result against the original. The playbook is the method, the skills in `skills/re-*`, the
 agents in `agents/` and these rules. The toolkit is `tools/` and `scripts/`. Nothing here is
 specific to one game. Un-Banished (https://github.com/tanepiper/unbanished) is the worked case study and may
@@ -30,7 +35,9 @@ These rules are for changes to GameFrame itself, which is a public repository.
 1. **No game material, ever.** No game binaries, data, assets, saves, decompiled code or
    disassembly from any commercial game. The only binaries the tests use are built from
    `examples/sample-game/` and `examples/dos-sample/` (our own code) into their ignored
-   `build/` folders. Screenshots are the exception and are always fine: of the
+   `build/` folders. The PS2 backend also uses ELF files built at test time from
+   hand-authored synthetic instructions in `tests/test_ps2_emu.py`.
+   Screenshots are the exception and are always fine: of the
    original games and of the case-study ports, in `docs/assets/case-studies/`, compressed
    WebP, where a page needs them.
 2. **Every tool is tested.** A new or changed tool gets a check in `tests/run.sh` against the

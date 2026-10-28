@@ -23,6 +23,9 @@ expect() { # name expected-substring command...
   if [[ "$out" == *"$want"* ]]; then ok "$name"; else bad "$name" "$out"; fi
 }
 
+echo "PS2 common-integer subset (synthetic ELF)"
+if "$PYTHON" tests/test_ps2_emu.py; then ok "PS2 integer backend and rejection paths"; else bad "PS2 integer backend"; fi
+
 echo "Building the sample game"
 $S/build.sh >/dev/null 2>&1 && ok "sample game builds (zig cc, Windows x64)" || { bad "sample game builds: is zig installed?"; exit 1; }
 
@@ -1806,7 +1809,7 @@ out="$("$PYTHON" tests/mcp_provider_config.py 2>&1)"
   && ok "optional MCP providers use project-local settings and preserve client configuration ($out)" \
   || bad "MCP provider opt-in" "$out"
 out="$("$PYTHON" tests/mcp_tool_coverage.py 2>&1)"
-[[ $? == 0 && "$out" == *"MCP coverage: 129 catalog entries, 101 runnable tools, progress/cancel/timeout"* ]] \
+[[ $? == 0 && "$out" == *"MCP coverage: 130 catalog entries, 102 runnable tools, progress/cancel/timeout"* ]] \
   && ok "the GameFrame MCP exposes every catalog entry and runs every program and script ($out)" \
   || bad "GameFrame MCP tool coverage" "$out"
 out="$("$PYTHON" tests/decision_adapter.py "$B/game.exe" 2>&1)"
