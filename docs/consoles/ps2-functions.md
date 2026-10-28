@@ -97,20 +97,30 @@ unsupported. Other supported instructions in delay slots execute. Both modes
 support at most four register arguments.
 
 Pass `mode='mips64'` to `Emu` or add `--mips64` to the CLI to opt into Unicorn's
-64-bit MIPS register model. This mode adds only `DSLL32`, `DSRL32` and
-`DADDIU`. The shifts execute as 64-bit doubleword shifts with shift amounts
-`32 + sa`. `DADDIU` sign-extends its 16-bit immediate and performs a 64-bit
-addition without an integer-overflow trap. These instructions follow the
+64-bit MIPS register model. This mode adds only `DSLL32`, `DSRL32`, `DADDIU` and
+naturally aligned `LD`/`SD` accesses wholly inside the 32 MiB RAM mapping. The
+loads and stores transfer a full 64-bit GPR value and use the sign-extended
+16-bit address offset. Unicorn executes them natively, including when `SD` is
+in a branch delay slot; an effective address that is unaligned or outside RAM
+is rejected before execution. Around an `SD` delay slot, the backend briefly
+disables Unicorn's write observer, which faults on some branch-to-control
+sequences. It records that store from the same checked effective address and
+restores the observer at the next instruction; Unicorn still executes the
+branch and store. The shifts execute as 64-bit doubleword shifts
+with shift amounts `32 + sa`. `DADDIU` sign-extends its 16-bit immediate and
+performs a 64-bit addition without an integer-overflow trap. These instructions follow the
 [MIPS64 instruction set reference](https://s3-eu-west-1.amazonaws.com/downloads-mips/documents/MD00087-2B-MIPS64BIS-AFP-05.04.pdf).
-The mode also executes the admitted zero-source `DADDU` form natively. All other
-64/128-bit operations remain unsupported. It returns a 64-bit
+The mode also executes the admitted zero-source `DADDU` form natively. Other
+doubleword loads/stores, arithmetic, MMI and 128-bit operations remain
+unsupported. It returns a 64-bit
 value and reports `return_u64` in CLI output, while retaining `return_u32` as its
 low word. Inputs are full 64-bit register values in this mode. A 32-bit signed
 argument must be passed sign-extended when the original caller does so; this
 tool does not infer ABI extension rules.
 
 Unicorn's generic MIPS CPU is **not a complete R5900/PS2 model**. The optional
-mode uses MIPS64 semantics for the two admitted shifts; this is not evidence that
+mode uses MIPS64 semantics for the admitted shifts and aligned RAM doubleword
+accesses; this is not evidence that
 the generic CPU models all R5900 behavior. This backend does not support other
 64/128-bit operations, MMI, FPU, VU, syscalls, callees, MMIO, interrupts, timing
 or hardware side effects. Unsupported instructions, escaped control flow,

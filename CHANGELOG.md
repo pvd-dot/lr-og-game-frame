@@ -18,6 +18,10 @@ Every release of GameFrame, newest first. The format follows
 - The PS2 backend has an opt-in Unicorn MIPS64 mode for DSLL32, DSRL32 and DADDIU,
   with synthetic 64-bit shift, arithmetic and common-instruction regression tests;
   other doubleword and R5900-specific operations remain unsupported.
+- The opt-in PS2 MIPS64 mode executes naturally aligned, in-RAM LD/SD operations
+  natively, including SD in a branch delay slot. Synthetic tests cover full-width
+  values, signed offsets, aliases, RAM edges, direct branch-to-return delays and
+  fail-closed cases; other doubleword memory instructions remain unsupported.
 
 - The call log in the replacement libraries: `WRAPPER_CALLS=FILE` writes every call the game
   makes into Glide, SGL, ATI3DCIF or the S3D Toolkit, one line each, in the format

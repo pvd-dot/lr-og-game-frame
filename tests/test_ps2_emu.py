@@ -28,6 +28,14 @@ def daddiu(rt, rs, imm):
     return (25 << 26) | (rs << 21) | (rt << 16) | (imm & 0xffff)
 
 
+def ld(rt, rs, offset):
+    return (55 << 26) | (rs << 21) | (rt << 16) | (offset & 0xffff)
+
+
+def sd(rt, rs, offset):
+    return (63 << 26) | (rs << 21) | (rt << 16) | (offset & 0xffff)
+
+
 class Tests(unittest.TestCase):
     def engine(self, words, mode='mips32'):
         data = elf(words)
@@ -248,6 +256,114 @@ class Tests(unittest.TestCase):
         with self.assertRaisesRegex(Unsupported, 'unsupported instruction'):
             self.engine([dadd, 0x03e00008, 0], mode='mips64').call(
                 0x100000, 0x10000c, 1, 2)
+
+    def test_mips64_ld_sd_preserve_full_doublewords_and_signed_offsets(self):
+        # LD sign-extends its 16-bit address offset; SD writes all 64 bits.
+        words = [ld(8, 4, -8), sd(8, 5, 0), daddu(2, 8, 0),
+                 0x03e00008, 0]
+        emu = self.engine(words, mode='mips64')
+        value = 0xfedcba9876543210
+        emu.write(0x200000, struct.pack('<Q', value))
+        self.assertEqual(emu.call(0x100000, 0x100014, 0x200008, 0x201000), value)
+        self.assertEqual(emu.read(0x201000, 8), struct.pack('<Q', value))
+        self.assertEqual(emu.read_addresses, set(range(0x200000, 0x200008)))
+        self.assertEqual(emu.written, set(range(0x201000, 0x201008)))
+        self.assertEqual(emu.steps, 5)
+
+    def test_mips64_ld_destination_alias_and_zero_register_memory_semantics(self):
+        # LD A0,0(A0) reads the old base before replacing it; SD/LD on ZERO
+        # still access memory even though the load result is discarded.
+        alias = self.engine([ld(4, 4, 0), daddu(2, 4, 0),
+                             0x03e00008, 0], mode='mips64')
+        alias.write(0x200000, struct.pack('<Q', 0x8123456789abcdef))
+        self.assertEqual(alias.call(0x100000, 0x100010, 0x200000),
+                         0x8123456789abcdef)
+        self.assertEqual(alias.read_addresses, set(range(0x200000, 0x200008)))
+
+        zero = self.engine([sd(0, 4, 0), ld(0, 4, 0), daddu(2, 5, 0),
+                            0x03e00008, 0], mode='mips64')
+        self.assertEqual(zero.call(0x100000, 0x100014, 0x200000,
+                                   0xdeadbeef01234567),
+                         0xdeadbeef01234567)
+        self.assertEqual(zero.read(0x200000, 8), bytes(8))
+        self.assertEqual(zero.read_addresses, set(range(0x200000, 0x200008)))
+        self.assertEqual(zero.written, set(range(0x200000, 0x200008)))
+
+    def test_mips64_ld_sd_allow_ram_edges_and_reject_bad_addresses(self):
+        edge_load = self.engine([ld(2, 4, 0), 0x03e00008, 0], mode='mips64')
+        edge_load.write(0x02000000 - 8, struct.pack('<Q', 0x0123456789abcdef))
+        self.assertEqual(edge_load.call(0x100000, 0x10000c, 0x02000000 - 8),
+                         0x0123456789abcdef)
+
+        edge_store = self.engine([sd(4, 5, 0), 0x03e00008, 0], mode='mips64')
+        self.assertEqual(edge_store.call(0x100000, 0x10000c, 0x8877665544332211,
+                                         0x02000000 - 8), 0)
+        self.assertEqual(edge_store.read(0x02000000 - 8, 8),
+                         struct.pack('<Q', 0x8877665544332211))
+
+        for word, base in ((ld(2, 4, 0), 0x200001),
+                           (sd(4, 5, 0), 0x200001),
+                           (ld(2, 4, 0), 0x02000000),
+                           (sd(4, 5, 0), 0x02000000),
+                           (ld(2, 4, -8), 0x0000000000000004),
+                           (sd(4, 5, 0), 0xfffffffffffffff8)):
+            emu = self.engine([word, 0x03e00008, 0], mode='mips64')
+            args = [0x200000, 0x200000]
+            args[((word >> 21) & 31) - 4] = base
+            with self.assertRaisesRegex(Unsupported, 'unaligned|outside RAM'):
+                emu.call(0x100000, 0x10000c, *args)
+
+    def test_mips64_sd_runs_in_taken_and_untaken_branch_delay_slot(self):
+        # SD is the BEQ delay instruction and must execute on both paths.
+        emu = self.engine([0x10850003, sd(6, 7, 0), 0x24020001, 0,
+                           0x24020000, 0x03e00008, 0], mode='mips64')
+        for left, right in ((5, 5), (5, 6)):
+            emu.write(0x200000, bytes(8))
+            self.assertEqual(emu.call(0x100000, 0x10001c, left, right,
+                                      0x0123456789abcdef, 0x200000), 0)
+            self.assertEqual(emu.read(0x200000, 8),
+                             struct.pack('<Q', 0x0123456789abcdef))
+            self.assertEqual(emu.written, set(range(0x200000, 0x200008)))
+
+    def test_mips64_sd_delay_slot_can_branch_directly_to_return(self):
+        # Unicorn's write hook faults on a taken branch whose SD delay slot
+        # lands directly on JR RA. The backend temporarily tracks that one SD
+        # from its decoded address while Unicorn executes both instructions.
+        emu = self.engine([0x10850002, sd(6, 7, 0), 0x24020001,
+                           0x03e00008, 0], mode='mips64')
+        for left, right, expected in ((5, 5, 0), (5, 6, 1)):
+            emu.write(0x200000, bytes(8))
+            self.assertEqual(emu.call(0x100000, 0x100014, left, right,
+                                      0x0123456789abcdef, 0x200000), expected)
+            self.assertEqual(emu.read(0x200000, 8),
+                             struct.pack('<Q', 0x0123456789abcdef))
+            self.assertEqual(emu.written, set(range(0x200000, 0x200008)))
+            self.assertEqual(emu.steps, 4 if left == right else 5)
+
+    def test_mips64_write_observer_resumes_after_sd_delay_slot(self):
+        emu = self.engine([0x10850002, sd(6, 7, 0), 0x24020001,
+                           (43 << 26) | (7 << 21) | (6 << 16) | 8,
+                           0x03e00008, 0], mode='mips64')
+        emu.call(0x100000, 0x100018, 5, 5, 0x0123456789abcdef, 0x200000)
+        self.assertEqual(emu.read(0x200000, 8),
+                         struct.pack('<Q', 0x0123456789abcdef))
+        self.assertEqual(emu.read(0x200008, 4), struct.pack('<I', 0x89abcdef))
+        self.assertEqual(emu.written, set(range(0x200000, 0x20000c)))
+
+    def test_ld_sd_are_opt_in_and_other_doubleword_memory_ops_stay_unsupported(self):
+        for word in (ld(2, 4, 0), sd(2, 4, 0)):
+            self.assertFalse(allowed(word, 'mips32'))
+            self.assertTrue(allowed(word, 'mips64'))
+            with self.assertRaisesRegex(Unsupported, 'unsupported instruction'):
+                self.engine([word, 0x03e00008, 0]).call(
+                    0x100000, 0x10000c, 0x200000, 0x200008)
+
+        for op in (26, 27, 44, 45, 52, 60):  # LDL/LDR/SDL/SDR/LLD/SCD
+            word = (op << 26) | (4 << 21) | (2 << 16)
+            self.assertFalse(allowed(word, 'mips64'))
+            with self.assertRaisesRegex(Unsupported, 'unsupported instruction'):
+                self.engine([word, 0x03e00008, 0], mode='mips64').call(
+                    0x100000, 0x10000c, 0x200000)
 
     def test_mips64_shift_executes_in_a_control_transfer_delay_slot(self):
         # JR RA; its delay slot computes DSRL32 V0,A0,31.
