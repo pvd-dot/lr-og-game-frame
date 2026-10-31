@@ -113,6 +113,62 @@ defines TTE and tag fields. The implementation is an independent byte-stream
 model, not copied emulator code. It deliberately leaves the timing and
 interleaving behavior in `SIF1Dma` outside this API.
 
+### DMA9/SIF0 synchronous launch
+
+`tools/emu/ps2_sif0/` models one bounded synchronous source path for an IOP
+DMA9 start while an EE SIF0 chain is already active. It reads live IOP DMA
+descriptors and source words, moves words through the serialized SIF FIFO,
+consumes embedded EE tags into direct EE RAM destinations, updates the modeled
+DMA/channel fields, and schedules the selected IOP event. The public `launch`
+call validates and stages every supplied state object before committing it, so
+unsupported inputs leave those objects unchanged.
+
+This is a source-qualified software model, not an emulator backend or a
+physical-console guarantee. The synchronous path follows PCSX2 v2.8.2 at
+revision `fd9d310ccbb6b8b62c976da8886a3c8fd3a10ff3`, chiefly `Sif0.cpp`,
+`Sif.h`, `IopDma.cpp`, and the IOP hardware write path. It supports the stated
+fixed IOP/EE RAM and hardware buffer sizes, direct RAM windows, a bounded
+well-formed tag stream, and the documented scheduler state. Resumed/nonempty
+channel states, wrapped memory spans, EE aliases or scratchpad destinations,
+unsupported scheduler domains, and malformed or cyclic streams are refused.
+
+Use `from tools.emu.ps2_sif0 import launch`, then call
+`launch(iop_ram, iop_hw, ee_ram, ee_hw, sif0, scheduler, chcr=0x01000701)`.
+The five distinct `bytearray` objects contain exactly 2 MiB IOP RAM, 64 KiB
+IOP hardware registers, 32 MiB EE RAM, 64 KiB EE hardware registers and the
+580-byte serialized SIF0 state from this source revision, respectively.
+The scheduler dictionary requires integer `cycle`, `interrupt`, `event_start`,
+`event_delta` and `next_event` fields: these are the IOP cycle, interrupt mask,
+SIF0 event start/delay and next-event cycle. Cycles use unsigned 64-bit values,
+the mask uses unsigned 32-bit values and the delay uses signed 32-bit values.
+Optional `iop_cycle_ee` enables the bridge and requires `ee_cycle` and
+`ee_next_event`; the former is signed 32-bit, while EE cycles are unsigned
+64-bit. Supply authentic state for every included field. Unsupported native
+conversion or overflow domains are refused.
+
+A result has `status` equal to `completed` or `refused`. Successful calls mutate
+the buffers and scheduler and return descriptor-derived `transfers` and a loop
+count. Refused calls return a reason and preserve the inputs. The API accepts
+only a started, PCR2-enabled DMA9, an empty FIFO and idle IOP channel, with an
+already active EE chain. `python3 -m tools.emu.ps2_sif0 --help` prints API usage;
+there is no standalone state-file format.
+
+Other source files used to derive the scheduler bridge are `R3000A.cpp`,
+`R3000A.h`, and `IopMem.h` from that same revision. The implementation is an
+independent Python model; it does not include PCSX2 source. Its synthetic test
+is run by `tests/run.sh` and can also be run directly with
+`python3 tests/test_ps2_sif0_launch.py`.
+
+The API stops when the synchronous launch has no more modeled progress. It
+does not model concurrent execution, host scheduling or timing, later EE
+completion and interrupt delivery, receiver code, graphics/audio/input, or
+physical PS2 behavior. A completed call therefore means only that this bounded
+source path was modeled; it does not mean that a hardware transfer or the
+rest of the emulator completed. Synthetic checks are regressions for the
+documented model, not gameplay evidence.
+
+### Integer execution backend
+
 `ps2_emu.py` loads little-endian ELF32 MIPS executable segments into 32 MiB of RAM.
 Its default is the listed common MIPS32 integer subset: word arithmetic, shifts,
 logic, comparisons, ordinary conditional branches, byte/halfword/word

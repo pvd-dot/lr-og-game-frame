@@ -26,6 +26,10 @@ Every release of GameFrame, newest first. The format follows
   RAM after validating every tag, IOP header and destination. Its explicit
   `DATA_COPIED` result does not imply syscall, transfer-device or receiver
   completion; synthetic tests cover split payloads and refusal without mutation.
+- A source-qualified synchronous DMA9/SIF0 launch slice moves live descriptors
+  and words through bounded IOP/EE RAM and serialized FIFO state. It does not
+  model later completion, host timing or physical hardware; synthetic tests
+  cover the documented paths and atomic refusal.
 
 - The call log in the replacement libraries: `WRAPPER_CALLS=FILE` writes every call the game
   makes into Glide, SGL, ATI3DCIF or the S3D Toolkit, one line each, in the format
