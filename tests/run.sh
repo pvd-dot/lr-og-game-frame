@@ -25,6 +25,7 @@ expect() { # name expected-substring command...
 
 echo "PS2 common-integer subset (synthetic ELF)"
 if "$PYTHON" tests/test_ps2_emu.py; then ok "PS2 integer backend and rejection paths"; else bad "PS2 integer backend"; fi
+if "$PYTHON" tests/test_ps2_sif1_data_plane.py; then ok "PS2 SIF1 RAM data plane and rejection paths"; else bad "PS2 SIF1 RAM data plane"; fi
 
 echo "Building the sample game"
 $S/build.sh >/dev/null 2>&1 && ok "sample game builds (zig cc, Windows x64)" || { bad "sample game builds: is zig installed?"; exit 1; }

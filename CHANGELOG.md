@@ -22,6 +22,10 @@ Every release of GameFrame, newest first. The format follows
   natively, including SD in a branch delay slot. Synthetic tests cover full-width
   values, signed offsets, aliases, RAM edges, direct branch-to-return delays and
   fail-closed cases; other doubleword memory instructions remain unsupported.
+- `tools/emu/ps2_sif1_data.c` copies a bounded finite EE REF/REFE stream into IOP
+  RAM after validating every tag, IOP header and destination. Its explicit
+  `DATA_COPIED` result does not imply syscall, transfer-device or receiver
+  completion; synthetic tests cover split payloads and refusal without mutation.
 
 - The call log in the replacement libraries: `WRAPPER_CALLS=FILE` writes every call the game
   makes into Glide, SGL, ATI3DCIF or the S3D Toolkit, one line each, in the format

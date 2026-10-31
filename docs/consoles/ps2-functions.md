@@ -84,6 +84,35 @@ not a proof for all inputs or a demonstration of running gameplay.
 
 ## Supported boundary
 
+### SIF1 RAM data plane
+
+`tools/emu/ps2_sif1_data.c` provides a bounded host-side copy for a caller that
+already has a finite EE SIF1 REF/REFE tag stream in base-zero physical RAM. It
+reads sequential, 16-byte-aligned EE tags, concatenates their QWC-sized source
+segments, then parses 16-byte IOP headers and copies each declared payload to
+the header's low-24-bit IOP destination. The payload byte count is
+`(words & 0xffffc) * 4`. It accepts only REF (ID 3) tags followed by REFE (ID
+0), aligned source/destination spans, exact 32 MiB EE and 2 MiB IOP buffers,
+and at most 4096 tags and 65536 packets. Header counts with nonzero low two
+bits are rejected. A stop marker (IRQ or ID bit 2) is allowed only on the last
+packet, with no trailing stream bytes. A finite exactly consumed stream without
+a stop marker is also accepted and reports `final_stop_requested == 0`.
+
+The helper validates the complete chain, packet stream and all IOP destinations
+before changing IOP RAM or the result structure. Its only success status is
+`GF_PS2_SIF1_DATA_COPIED`: this reports a byte copy, not IOP transfer or device
+completion. The caller must provide stable base-zero physical RAM buffers and
+ensure SIF1 TTE is disabled. The helper does not model other DMA tag IDs,
+MMIO, FIFO occupancy or timing, cache visibility, scheduling, syscalls,
+interrupts, receiver execution or hardware behavior.
+
+The support boundary follows the local PCSX2 v2.8.2 source at revision
+`fd9d310ccbb6b8b62c976da8886a3c8fd3a10ff3`: `Sif1.cpp` reads REF/REFE
+segments and IOP headers; `Hw.cpp` advances the selected chain tags; `Dmac.h`
+defines TTE and tag fields. The implementation is an independent byte-stream
+model, not copied emulator code. It deliberately leaves the timing and
+interleaving behavior in `SIF1Dma` outside this API.
+
 `ps2_emu.py` loads little-endian ELF32 MIPS executable segments into 32 MiB of RAM.
 Its default is the listed common MIPS32 integer subset: word arithmetic, shifts,
 logic, comparisons, ordinary conditional branches, byte/halfword/word
