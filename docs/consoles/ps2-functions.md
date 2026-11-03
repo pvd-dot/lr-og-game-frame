@@ -113,6 +113,34 @@ defines TTE and tag fields. The implementation is an independent byte-stream
 model, not copied emulator code. It deliberately leaves the timing and
 interleaving behavior in `SIF1Dma` outside this API.
 
+### DMA10/SIF1 empty-FIFO rearm
+
+`tools/emu/ps2_sif1_rearm.c` models the bounded receiver-side transition after
+the caller has written IOP DMA10 CHCR `0x41000300` and BCR low halfword `0x20`.
+The caller supplies exact 64 KiB IOP and EE hardware images, the 0x244-byte
+serialized PCSX2 `_sif` image, and the private `sif1_dma_stall` byte, which is
+not included in savestates. `GF_PS2_SIF1_REARM_COMPLETE` means this callback
+transition was modeled; `GF_PS2_SIF1_REARM_REFUSED` leaves all supplied state
+unchanged.
+
+The supported route requires DMA10 enabled in PCR2, an empty SIF1 FIFO (the
+serialized size word is authoritative; this path does not read FIFO cursors),
+an idle EE SIF1 channel and EE QWC zero. The model first applies the IOP
+busy/end writes.
+If the supplied stall flag is set and EE MADR is above DMAC STADR, it returns
+there, preserving cycle counters, SBUS and the stall flag. Otherwise it resets
+both SIF cycle counters, clears the stall flag and clears SBUS_F240 bits
+`0x4040`. It transfers no data on this empty route.
+
+This follows PCSX2 v2.8.2 revision `fd9d310ccbb6b8b62c976da8886a3c8fd3a10ff3`,
+notably `IopDma.cpp::psxDma10` and `Sif1.cpp::SIF1Dma`, `Sif1Init` and
+`Sif1End`. The caller must provide the actual private stall value and ensure no
+concurrent device activity. Nonempty FIFO, active EE channel, nonzero QWC,
+interrupt delivery, scheduling, timing, and physical DMA are outside the API.
+Synthetic tests run through `tests/run.sh` and directly with
+`python3 tests/test_ps2_sif1_rearm.py`; they test the bounded contract, not game
+execution.
+
 ### DMA9/SIF0 synchronous launch
 
 `tools/emu/ps2_sif0/` models one bounded synchronous source path for an IOP

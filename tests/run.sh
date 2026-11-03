@@ -27,6 +27,7 @@ echo "PS2 common-integer subset (synthetic ELF)"
 if "$PYTHON" tests/test_ps2_emu.py; then ok "PS2 integer backend and rejection paths"; else bad "PS2 integer backend"; fi
 if "$PYTHON" tests/test_ps2_iop_timer.py; then ok "PS2 IOP timer-5 count model and rejection paths"; else bad "PS2 IOP timer-5 count model"; fi
 if "$PYTHON" tests/test_ps2_sif1_data_plane.py; then ok "PS2 SIF1 RAM data plane and rejection paths"; else bad "PS2 SIF1 RAM data plane"; fi
+if "$PYTHON" tests/test_ps2_sif1_rearm.py; then ok "PS2 SIF1 empty-FIFO rearm and rejection paths"; else bad "PS2 SIF1 empty-FIFO rearm"; fi
 if "$PYTHON" tests/test_ps2_sif0_launch.py; then ok "PS2 DMA9/SIF0 synchronous launch model and refusal paths"; else bad "PS2 DMA9/SIF0 launch model"; fi
 
 echo "Building the sample game"

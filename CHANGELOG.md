@@ -34,6 +34,9 @@ Every release of GameFrame, newest first. The format follows
   gate-disabled path when no timer event is due. It preserves source integer
   narrowing and wrap behavior; event scheduling, other rates and gate modes
   remain unsupported.
+- A bounded PS2 SIF1 empty-FIFO rearm model follows the DMA10 source path when
+  the FIFO has no payload. The caller supplies the private DMA-stall flag;
+  transfers and unsupported SIF1 configurations remain outside its scope.
 
 - The call log in the replacement libraries: `WRAPPER_CALLS=FILE` writes every call the game
   makes into Glide, SGL, ATI3DCIF or the S3D Toolkit, one line each, in the format
