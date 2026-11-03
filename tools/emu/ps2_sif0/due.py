@@ -33,13 +33,15 @@ def complete_due_sif0(
     iop_hw: bytearray,
     scheduler: dict[str, Any],
     *,
-    counter_deadline: int,
+    counter_start: int,
+    counter_delta: int,
 ) -> dict[str, str]:
     """Apply one due SIF0 callback and source-shaped event reschedule.
 
     `scheduler` uses the SIF0-launch fields `cycle`, `interrupt`,
     `event_start`, `event_delta`, and `next_event`. The caller supplies the
-    independently maintained absolute counter deadline. The operation
+    source counter fields (`psxNextStartCounter` and signed
+    `psxNextDeltaCounter`), not a derived absolute deadline. The operation
     mutates hardware and scheduler only when the SIF0 event is due and is the
     sole pending event, no counter is due, ICTRL suppresses interrupt entry,
     and all native cycle arithmetic stays in the supported domain.
@@ -47,7 +49,7 @@ def complete_due_sif0(
     A successful call clears DMA9 CHCR.TR, raises ICR2 channel-2 completion
     (and the master IRQ bit when enabled), raises I_STAT bit 3, clears the
     SIF0 pending event, and chooses the next event as the earlier of the
-    384-cycle default horizon and counter deadline. It models PCSX2 software
+    384-cycle default horizon and the source counter deadline. It models PCSX2 software
     effects only; it does not execute guest instructions or advance time.
     """
     if not isinstance(iop_hw, bytearray) or len(iop_hw) != HW_BYTES:
@@ -68,7 +70,8 @@ def complete_due_sif0(
         start = _u64(staged["event_start"], "event_start")
         delta = _s32_int(staged["event_delta"], "event_delta")
         old_next = _u64(staged["next_event"], "next_event")
-        deadline = _u64(counter_deadline, "counter_deadline")
+        counter_origin = _u64(counter_start, "counter_start")
+        counter_wait = _s32_int(counter_delta, "counter_delta")
 
         if interrupt != (1 << IOP_EVENT_SIF0):
             raise Refusal("requires the SIF0 event as the sole pending IOP event")
@@ -86,19 +89,31 @@ def complete_due_sif0(
         due_cycle = start + delta
         if old_next != due_cycle:
             raise Refusal("sole-event scheduler next cycle does not identify the SIF0 due check")
-        if deadline <= cycle:
-            raise Refusal("counter deadline is due at or before the SIF0 callback")
-        counter_wait = deadline - cycle
-        if counter_wait > S32_MAX:
-            raise Refusal("counter wait is outside the source signed-cycle domain")
+        if counter_wait < 0:
+            raise Refusal("negative counter delta is outside the supported no-counter-event domain")
+        if counter_origin > cycle:
+            raise Refusal("counter start is ahead of the current cycle")
+        counter_elapsed = cycle - counter_origin
+        if counter_elapsed > S32_MAX:
+            raise Refusal("counter elapsed-cycle narrowing is outside the modeled s32 domain")
+        if counter_elapsed >= counter_wait:
+            raise Refusal("counter event is due at or before the SIF0 callback")
         if cycle > U64_MAX - IOP_WAIT_CYCLES:
             raise Refusal("default IOP event horizon overflows u64")
+        # R3000A.cpp compares the signed counter delta against the narrowed
+        # (cycle + iopWaitCycles - counter start). Keep that subtraction in
+        # its unambiguous nonnegative s32 domain.
+        horizon_from_counter_start = cycle + IOP_WAIT_CYCLES - counter_origin
+        if horizon_from_counter_start > S32_MAX:
+            raise Refusal("counter horizon narrowing is outside the modeled s32 domain")
+        if counter_origin > U64_MAX - counter_wait:
+            raise Refusal("counter deadline addition overflows u64")
 
         # In R3000A.cpp iopEventTest first assigns cycle + iopWaitCycles,
         # then replaces it only when the counter delta is strictly smaller.
         next_event = cycle + IOP_WAIT_CYCLES
-        if counter_wait < IOP_WAIT_CYCLES:
-            next_event = deadline
+        if counter_wait < horizon_from_counter_start:
+            next_event = counter_origin + counter_wait
 
         ictrl = _word(hw, IOP_ICTRL)
         if ictrl != 0:
