@@ -29,6 +29,7 @@ if "$PYTHON" tests/test_ps2_iop_timer.py; then ok "PS2 IOP timer-5 count model a
 if "$PYTHON" tests/test_ps2_sif1_data_plane.py; then ok "PS2 SIF1 RAM data plane and rejection paths"; else bad "PS2 SIF1 RAM data plane"; fi
 if "$PYTHON" tests/test_ps2_sif1_rearm.py; then ok "PS2 SIF1 empty-FIFO rearm and rejection paths"; else bad "PS2 SIF1 empty-FIFO rearm"; fi
 if "$PYTHON" tests/test_ps2_sif0_launch.py; then ok "PS2 DMA9/SIF0 synchronous launch model and refusal paths"; else bad "PS2 DMA9/SIF0 launch model"; fi
+if "$PYTHON" tests/test_ps2_sif0_due.py; then ok "PS2 SIF0 due-event callback and refusal paths"; else bad "PS2 SIF0 due-event callback"; fi
 
 echo "Building the sample game"
 $S/build.sh >/dev/null 2>&1 && ok "sample game builds (zig cc, Windows x64)" || { bad "sample game builds: is zig installed?"; exit 1; }
