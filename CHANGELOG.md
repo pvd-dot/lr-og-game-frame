@@ -30,6 +30,10 @@ Every release of GameFrame, newest first. The format follows
   and words through bounded IOP/EE RAM and serialized FIFO state. It does not
   model later completion, host timing or physical hardware; synthetic tests
   cover the documented paths and atomic refusal.
+- A restricted PS2 IOP timer-5 COUNT model covers the running rate-1,
+  gate-disabled path when no timer event is due. It preserves source integer
+  narrowing and wrap behavior; event scheduling, other rates and gate modes
+  remain unsupported.
 
 - The call log in the replacement libraries: `WRAPPER_CALLS=FILE` writes every call the game
   makes into Glide, SGL, ATI3DCIF or the S3D Toolkit, one line each, in the format
