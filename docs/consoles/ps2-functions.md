@@ -251,6 +251,33 @@ PCSX2 source is included. Synthetic boundary tests run by `tests/run.sh` and
 directly with `python3 tests/test_ps2_iop_timer.py` are arithmetic regressions,
 not evidence of gameplay behavior.
 
+### IOP interrupt-entry effects at an event-test boundary
+
+`tools/emu/ps2_iop_irq.py` provides `enter_iop_interrupt(iop_hw, *, pc,
+status, cause, epc)`. The caller must already be at the interrupt check in
+`iopEventTest` and provide the current PC, CP0 values, and exact 64 KiB IOP
+hardware image. The helper reads ICTRL (`0x1078`), I_STAT (`0x1070`) and
+I_MASK (`0x1074`) from that image. If the source gate is false, it returns
+`not_taken` and unchanged CP0 values. If true, it returns the PC/CP0 effects
+of `psxException(0, 0)`: BEV-selected vector, EPC set to the supplied PC,
+Cause low seven bits cleared with all higher bits preserved, and Status bits
+0..3 copied into bits 2..5 after bits 0..5 are cleared (bits 4..5 are not
+stacked). It does not mutate the hardware image.
+
+The source is PCSX2 v2.8.2, revision
+`fd9d310ccbb6b8b62c976da8886a3c8fd3a10ff3`, principally
+`pcsx2/R3000A.cpp` (`iopEventTest` and `psxException`) and `pcsx2/IopHw.h`
+(interrupt register offsets); their SHA-256 hashes are respectively
+`740ae7dbd547d92c34c89e89ea58e2bf6bd3276f493e587cf61de285b8a5a4d2` and
+`7bd006ec20a0a0d6441af651bf5f6bf18307f3c97057d6bd352af7f9706375bd`. This
+helper models only the entry predicate and
+exception-entry register effects at a boundary the caller has already
+reached. It does not process scheduled callbacks or counters, advance time,
+call the scheduler, execute a handler, or establish that the supplied hardware
+image includes all due-event effects. The caller remains responsible for that
+state and chronology. Synthetic tests in `tests/test_ps2_iop_irq.py` cover the
+gate and entry arithmetic; they do not establish runtime or game behavior.
+
 ### Integer execution backend
 
 `ps2_emu.py` loads little-endian ELF32 MIPS executable segments into 32 MiB of RAM.
