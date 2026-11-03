@@ -200,7 +200,7 @@ def test_progress_cancellation_and_timeout():
 def main():
     test_catalog_and_runner()
     test_progress_cancellation_and_timeout()
-    print('MCP coverage: 132 catalog entries, 103 runnable tools, progress/cancel/timeout')
+    print('MCP coverage: 133 catalog entries, 103 runnable tools, progress/cancel/timeout')
 
 
 if __name__ == '__main__':
