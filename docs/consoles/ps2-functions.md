@@ -195,6 +195,29 @@ source path was modeled; it does not mean that a hardware transfer or the
 rest of the emulator completed. Synthetic checks are regressions for the
 documented model, not gameplay evidence.
 
+### DMA9/SIF0 due-event callback
+
+`tools/emu/ps2_sif0.complete_due_sif0(iop_hw, scheduler,
+counter_deadline=...)` models the selected PCSX2 software callback when an
+already scheduled SIF0 event reaches its due check. It requires a sole pending
+SIF0 event, a due event whose signed cycle arithmetic is in range, a future
+counter deadline, and `I_CTRL == 0`. It clears DMA9 `CHCR.TR`, updates ICR2's
+DMA channel-2 completion bits, raises `I_STAT` bit 3, clears the SIF0 event
+pending bit, and selects the next event from the 384-cycle default horizon and
+the supplied absolute counter deadline. Calls before the event is due return
+`not_due` without mutation; unsupported input returns `refused` atomically.
+
+This is a scheduler callback transition, not an instruction executor, elapsed
+time model, or complete SIF0 implementation. The caller must derive the check
+cycle from its source-backed execution context and provide the timer's absolute
+deadline. Simultaneous pending events, due counters, nonzero I_CTRL and
+out-of-domain cycle arithmetic are refused. The selected profile excludes
+concurrent EE/IOP execution, interrupt entry, host scheduling cadence and
+hardware timing. `tests/test_ps2_sif0_due.py` covers due/not-due boundaries,
+deadline selection, DMA IRQ register behavior, atomic refusals and a completed
+wrong-pending-bit mutant. These synthetic checks establish only this bounded
+transition.
+
 ### IOP timer-5 COUNT read
 
 `tools/emu/ps2_iop_timer.py` provides `read_timer5_count(state,
