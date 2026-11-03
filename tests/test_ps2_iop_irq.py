@@ -66,6 +66,16 @@ class IopInterruptEntryTests(unittest.TestCase):
         self.assertEqual(result["cause"], 0x80000100)
         self.assertEqual(result["status"], 0x00400404)
 
+    def test_status_bits_four_and_five_are_discarded_not_stacked(self):
+        hw = make_hw()
+        # Keep bits 6..7 while exercising old mode bits 4..5. Only bits 0..3
+        # move into bits 2..5; old bits 4..5 are cleared before the shift.
+        result = enter_iop_interrupt(
+            hw, pc=0x1000, status=0xC0 | 0x30 | 0x401, cause=0, epc=0
+        )
+        self.assertEqual(result["disposition"], "taken")
+        self.assertEqual(result["status"], 0xC0 | 0x404)
+
     def test_exact_status_gate_threshold_is_inclusive(self):
         hw = make_hw()
         result = enter_iop_interrupt(hw, pc=0x1000, status=0x401, cause=0x55, epc=0x99)

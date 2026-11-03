@@ -260,9 +260,9 @@ hardware image. The helper reads ICTRL (`0x1078`), I_STAT (`0x1070`) and
 I_MASK (`0x1074`) from that image. If the source gate is false, it returns
 `not_taken` and unchanged CP0 values. If true, it returns the PC/CP0 effects
 of `psxException(0, 0)`: BEV-selected vector, EPC set to the supplied PC,
-Cause low seven bits cleared with all higher bits preserved, and the low-six
-Status mode stack shifted into bits 2..7. It does not mutate the hardware
-image.
+Cause low seven bits cleared with all higher bits preserved, and Status bits
+0..3 copied into bits 2..5 after bits 0..5 are cleared (bits 4..5 are not
+stacked). It does not mutate the hardware image.
 
 The source is PCSX2 v2.8.2, revision
 `fd9d310ccbb6b8b62c976da8886a3c8fd3a10ff3`, principally

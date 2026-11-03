@@ -55,8 +55,8 @@ def enter_iop_interrupt(
     The source gate is ``ICTRL != 0 && (ISTAT & IMASK) != 0 &&
     (Status & 0xFE01) >= 0x401``. A taken gate applies ``psxException(0, 0)``:
     clear Cause bits 0..6 while preserving all higher bits (including BD), set
-    EPC to the current PC, select the BEV or normal vector, and push the low
-    six Status bits into mode stack bits 2..7. Inputs outside this narrow
+    EPC to the current PC, select the BEV or normal vector, and push Status
+    bits 0..3 into bits 2..5 after clearing Status bits 0..5. Inputs outside this narrow
     register/image domain return ``refused`` without mutation.
     """
     if type(iop_hw) not in (bytes, bytearray) or len(iop_hw) != HW_BYTES:
