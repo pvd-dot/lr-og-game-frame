@@ -9,6 +9,10 @@ Every release of GameFrame, newest first. The format follows
 
 ### Added
 
+- Native GDB deferred stop dispatch validates stopped thread membership and required
+  scalar registers before capture callbacks; an owned concurrent fixture covers
+  finish breakpoints and refusal of incomplete state.
+
 - This fork: a restricted PS2 ELF integer-leaf execution backend, synthetic
   rejection tests, pinned NixOS tools and a Last Raven behavioral pilot guide.
   It reuses GameFrame's output comparator and does not compare compiled code bytes.
