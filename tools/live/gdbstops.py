@@ -72,6 +72,11 @@ class Dispatcher:
         self.pending = None
         self.queue_error = None
         self.last_snapshot = None
+        self.validators = []
+
+    def add_validator(self, callback):
+        """Register a check run at every verified stop before its callback."""
+        self.validators.append(callback)
 
     def defer(self, callback, *args):
         """Call only in stop(); record identity without switching frames/threads."""
@@ -87,11 +92,13 @@ class Dispatcher:
         """Resume once, then dispatch only a queued, verified explicit stop."""
         if self.pending is not None or self.queue_error is not None:
             raise StopError('unconsumed stop before continue')
+        self.last_snapshot = None
         self.gdb.execute('continue')
         return self.dispatch_pending()
 
     def dispatch_pending(self):
         """Use after an outer continue returns; never call inside stop()."""
+        self.last_snapshot = None
         if self.queue_error is not None:
             raise StopError(self.queue_error)
         if self.pending is None:
@@ -103,6 +110,8 @@ class Dispatcher:
                 inferior_num, pid, ptid):
             raise StopError('triggering inferior or selected thread changed')
         self.last_snapshot = snapshot
+        for validator in tuple(self.validators):
+            validator(snapshot)
         return callback(*args)
 
 

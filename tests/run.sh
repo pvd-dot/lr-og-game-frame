@@ -25,6 +25,7 @@ expect() { # name expected-substring command...
 
 echo "Native GDB stopped-thread dispatch (owned Linux x86-64 fixture)"
 if "$PYTHON" tests/test_native_stops.py; then ok "native stopped-thread dispatch"; else bad "native stopped-thread dispatch"; fi
+if "$PYTHON" tests/test_native_returns.py; then ok "native saved-return tracking"; else bad "native saved-return tracking"; fi
 
 echo "PS2 common-integer subset (synthetic ELF)"
 if "$PYTHON" tests/test_ps2_emu.py; then ok "PS2 integer backend and rejection paths"; else bad "PS2 integer backend"; fi
@@ -1818,7 +1819,7 @@ out="$("$PYTHON" tests/mcp_provider_config.py 2>&1)"
   && ok "optional MCP providers use project-local settings and preserve client configuration ($out)" \
   || bad "MCP provider opt-in" "$out"
 out="$("$PYTHON" tests/mcp_tool_coverage.py 2>&1)"
-[[ $? == 0 && "$out" == *"MCP coverage: 134 catalog entries, 104 runnable tools, progress/cancel/timeout"* ]] \
+[[ $? == 0 && "$out" == *"MCP coverage: 135 catalog entries, 105 runnable tools, progress/cancel/timeout"* ]] \
   && ok "the GameFrame MCP exposes every catalog entry and runs every program and script ($out)" \
   || bad "GameFrame MCP tool coverage" "$out"
 out="$("$PYTHON" tests/decision_adapter.py "$B/game.exe" 2>&1)"

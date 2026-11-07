@@ -9,6 +9,9 @@ Every release of GameFrame, newest first. The format follows
 
 ### Added
 
+- Native x86-64 saved-return tracking survives tail calls and validates pending
+  return slots, thread identity and stack bounds at each explicit stop.
+
 - Native GDB deferred stop dispatch validates stopped thread membership and required
   scalar registers before capture callbacks; an owned concurrent fixture covers
   finish breakpoints and refusal of incomplete state.
